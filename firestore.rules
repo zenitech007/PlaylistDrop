@@ -1,0 +1,219 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Hardened Global Primitives ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email == 'zenitech007@gmail.com'
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- Entity Validation Blueprints (verbatim constraints from firebase-blueprint.json) ---
+    function isValidOptionalHttpUrl(val) {
+      return val is string
+        && val.size() <= 500
+        && val.matches('^(|https?://[a-zA-Z0-9.-]+(:[0-9]{1,5})?(/.*)?)$')
+        && !val.matches('^https?://169\\.254\\..*');
+    }
+
+    function isValidAppConfig(data) {
+      return data.keys().hasAll([
+          'nextPublicApiUrl',
+          'fastapiUrl',
+          'useFirebaseYoutubeKey',
+          'updatedBy',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'nextPublicApiUrl',
+          'fastapiUrl',
+          'useFirebaseYoutubeKey',
+          'updatedBy',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidOptionalHttpUrl(data.nextPublicApiUrl)
+        && isValidOptionalHttpUrl(data.fastapiUrl)
+        && data.useFirebaseYoutubeKey is bool
+        && isValidId(data.updatedBy)
+        && data.updatedBy == request.auth.uid
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && data.updatedAt == request.time;
+    }
+
+    function isValidSavedPlaylist(data, userId, docPlaylistId) {
+      return data.keys().hasAll([
+          'ownerId',
+          'playlistId',
+          'source',
+          'url',
+          'name',
+          'ownerName',
+          'artworkUrl',
+          'trackCount',
+          'matchedCount',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId',
+          'playlistId',
+          'source',
+          'url',
+          'name',
+          'ownerName',
+          'artworkUrl',
+          'trackCount',
+          'matchedCount',
+          'createdAt',
+          'updatedAt'
+        ])
+        && isValidId(data.ownerId)
+        && data.ownerId == request.auth.uid
+        && data.ownerId == userId
+        && isValidId(data.playlistId)
+        && data.playlistId == docPlaylistId
+        && data.source is string
+        && data.source.size() <= 16
+        && data.source in ['deezer', 'spotify', 'youtube']
+        && data.url is string
+        && data.url.size() >= 10
+        && data.url.size() <= 500
+        && data.url.matches('^(https?://|spotify:playlist:).+$')
+        && data.name is string
+        && data.name.size() >= 1
+        && data.name.size() <= 200
+        && data.ownerName is string
+        && data.ownerName.size() <= 200
+        && data.artworkUrl is string
+        && data.artworkUrl.size() <= 500
+        && data.trackCount is int
+        && data.trackCount >= 0
+        && data.trackCount <= 200
+        && data.matchedCount is int
+        && data.matchedCount >= 0
+        && data.matchedCount <= data.trackCount
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp
+        && data.updatedAt == request.time;
+    }
+
+    // --- Collection 1: /appConfig/{configId} (Singleton non-secret runtime config) ---
+    match /appConfig/{configId} {
+      // Single-doc get only for non-secret endpoint discovery; listing is denied
+      allow get: if isValidId(configId) && configId == 'runtime';
+      allow list: if false;
+
+      allow create: if isVerifiedUser()
+        && isValidId(configId)
+        && configId == 'runtime'
+        && isValidAppConfig(incoming())
+        && incoming().createdAt == request.time
+        && isAdmin();
+
+      allow update: if isVerifiedUser()
+        && isValidId(configId)
+        && configId == 'runtime'
+        && isValidAppConfig(incoming())
+        && incoming().createdAt == existing().createdAt
+        && (
+          isAdmin()
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'nextPublicApiUrl',
+            'fastapiUrl',
+            'useFirebaseYoutubeKey',
+            'updatedBy',
+            'updatedAt'
+          ])
+        );
+
+      allow delete: if false;
+    }
+
+    // --- Collection 2: /users/{userId}/playlists/{playlistId} ---
+    match /users/{userId}/playlists/{playlistId} {
+      allow get: if isSignedIn()
+        && isValidId(userId)
+        && isValidId(playlistId)
+        && request.auth.uid == userId
+        && resource.data.ownerId == request.auth.uid;
+
+      allow list: if isSignedIn()
+        && isValidId(userId)
+        && request.auth.uid == userId
+        && resource.data.ownerId == request.auth.uid;
+
+      allow create: if isVerifiedUser()
+        && isValidId(userId)
+        && isValidId(playlistId)
+        && request.auth.uid == userId
+        && isValidSavedPlaylist(incoming(), userId, playlistId)
+        && incoming().createdAt == request.time;
+
+      allow update: if isVerifiedUser()
+        && isValidId(userId)
+        && isValidId(playlistId)
+        && request.auth.uid == userId
+        && isValidSavedPlaylist(incoming(), userId, playlistId)
+        && incoming().ownerId == existing().ownerId
+        && incoming().playlistId == existing().playlistId
+        && incoming().source == existing().source
+        && incoming().url == existing().url
+        && incoming().createdAt == existing().createdAt
+        && (
+          isAdmin()
+          || incoming().diff(existing()).affectedKeys().hasOnly([
+            'name',
+            'ownerName',
+            'artworkUrl',
+            'trackCount',
+            'matchedCount',
+            'updatedAt'
+          ])
+        );
+
+      allow delete: if isVerifiedUser()
+        && isValidId(userId)
+        && isValidId(playlistId)
+        && request.auth.uid == userId
+        && existing().ownerId == request.auth.uid;
+    }
+
+    // --- Collection 3: /admins/{adminId} (Trusted server-managed RBAC table) ---
+    match /admins/{adminId} {
+      allow get: if isSignedIn()
+        && isValidId(adminId)
+        && request.auth.uid == adminId;
+      allow list, create, update, delete: if false;
+    }
+  }
+}

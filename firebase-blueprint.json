@@ -1,0 +1,159 @@
+{
+  "entities": {
+    "AppRuntimeConfig": {
+      "title": "AppRuntimeConfig",
+      "description": "Non-secret runtime backend endpoints and Google Cloud YouTube API mode managed in Firestore.",
+      "type": "object",
+      "properties": {
+        "nextPublicApiUrl": {
+          "type": "string",
+          "description": "Public API origin used by the browser (empty string uses same-origin /api).",
+          "maxLength": 500,
+          "pattern": "^(|https?://[a-zA-Z0-9.-]+(:[0-9]{1,5})?(/.*)?)$"
+        },
+        "fastapiUrl": {
+          "type": "string",
+          "description": "Server-side FastAPI backend base URL used by Next.js /api/* proxy routes.",
+          "maxLength": 500,
+          "pattern": "^(|https?://[a-zA-Z0-9.-]+(:[0-9]{1,5})?(/.*)?)$"
+        },
+        "useFirebaseYoutubeKey": {
+          "type": "boolean",
+          "description": "When true and YOUTUBE_API_KEY env var is unset, server routes use the provisioned Firebase Google Cloud project API key for YouTube Data API v3."
+        },
+        "updatedBy": {
+          "type": "string",
+          "description": "UID of the verified admin who last updated runtime config.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the runtime config document was created."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the runtime config document was last updated."
+        }
+      },
+      "required": [
+        "nextPublicApiUrl",
+        "fastapiUrl",
+        "useFirebaseYoutubeKey",
+        "updatedBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "SavedPlaylist": {
+      "title": "SavedPlaylist",
+      "description": "A resolved playlist bookmark stored per authenticated user for quick reload across sessions.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the owning user.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "playlistId": {
+          "type": "string",
+          "description": "Platform playlist identifier.",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "source": {
+          "type": "string",
+          "description": "Origin platform of the playlist.",
+          "enum": ["deezer", "spotify", "youtube"]
+        },
+        "url": {
+          "type": "string",
+          "description": "Original public playlist URL or Spotify URI.",
+          "minLength": 10,
+          "maxLength": 500,
+          "pattern": "^(https?://|spotify:playlist:).+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Playlist display title.",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "ownerName": {
+          "type": "string",
+          "description": "Playlist creator or channel name.",
+          "maxLength": 200
+        },
+        "artworkUrl": {
+          "type": "string",
+          "description": "Optional playlist cover artwork URL.",
+          "maxLength": 500
+        },
+        "trackCount": {
+          "type": "integer",
+          "description": "Total resolved tracks in the playlist."
+        },
+        "matchedCount": {
+          "type": "integer",
+          "description": "Number of Creative Commons matched tracks."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when saved."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when last refreshed."
+        }
+      },
+      "required": [
+        "ownerId",
+        "playlistId",
+        "source",
+        "url",
+        "name",
+        "ownerName",
+        "artworkUrl",
+        "trackCount",
+        "matchedCount",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Trusted administrator membership marker managed out-of-band.",
+      "type": "object",
+      "properties": {
+        "grantedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when admin privilege was granted."
+        }
+      },
+      "required": ["grantedAt"]
+    }
+  },
+  "firestore": {
+    "/appConfig/{configId}": {
+      "schema": { "$ref": "#/entities/AppRuntimeConfig" },
+      "description": "Singleton runtime configuration document at /appConfig/runtime storing non-secret FASTAPI_URL, NEXT_PUBLIC_API_URL, and Google Cloud YouTube key mode."
+    },
+    "/users/{userId}/playlists/{playlistId}": {
+      "schema": { "$ref": "#/entities/SavedPlaylist" },
+      "description": "User-scoped saved playlist records owned strictly by {userId}."
+    },
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "Trusted server-managed admin allow-list; never client-writable."
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "name": "PlaylistDrop",
+  "description": "Resolve public Deezer, Spotify, or YouTube playlists, match tracks against free Creative Commons catalogs (Jamendo), and download audio individually or as a streamed ZIP archive.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
